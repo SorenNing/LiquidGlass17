@@ -1,0 +1,3 @@
+Filter = {
+  Bundles = ( "com.coolstar.sileo", "org.coolstar.sileo", "org.coolstar.sileo.nightly", "com.coolstar.sileo.beta", "Sileo" );
+};
