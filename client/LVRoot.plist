@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>entry</key>
+	<dict>
+		<key>cell</key>
+		<string>PSGroupCell</string>
+		<key>label</key>
+		<string>LVGlass 玻璃底栏</string>
+	</dict>
+	<key>LVDockEnabled</key>
+	<dict>
+		<key>cell</key>
+		<string>PSSwitchCell</string>
+		<key>default</key>
+		<true/>
+		<key>defaults</key>
+		<string>com.ning.lvglass</string>
+		<key>key</key>
+		<string>LVDockEnabled</string>
+		<key>label</key>
+		<string>悬浮玻璃底栏</string>
+		<key>PostNotification</key>
+		<string>com.ning.lvglass/reload</string>
+	</dict>
+	<key>LVDockHighlight</key>
+	<dict>
+		<key>cell</key>
+		<string>PSSliderCell</string>
+		<key>default</key>
+		<real>0.9</real>
+		<key>defaults</key>
+		<string>com.ning.lvglass</string>
+		<key>key</key>
+		<string>LVDockHighlight</string>
+		<key>label</key>
+		<string>高光强度</string>
+		<key>min</key>
+		<real>0</real>
+		<key>max</key>
+		<real>1</real>
+		<key>PostNotification</key>
+		<string>com.ning.lvglass/reload</string>
+	</dict>
+</dict>
+</plist>

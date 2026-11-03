@@ -55,14 +55,25 @@ static void LVLog(NSString *fmt, ...)
     fflush(lv_log_file);
 }
 
-// ---- 配置 ------------------------------------------------------------------
+// ---- 配置（LVGlass 自己的 domain，PreferenceLoader 可写） ------------------
+#define LV_PREFS_DOMAIN @"com.ning.lvglass"
+static CFStringRef LVDomain(void) { return (__bridge CFStringRef)LV_PREFS_DOMAIN; }
+
 static CGFloat LVFloat(NSString *key, CGFloat def) {
-    id v = [[NSUserDefaults standardUserDefaults] objectForKey:key];
-    return [v isKindOfClass:[NSNumber class]] ? [v doubleValue] : def;
+    CFPreferencesAppSynchronize(LVDomain());
+    id v = (__bridge id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, LVDomain());
+    if (v == nil) v = [[NSUserDefaults standardUserDefaults] objectForKey:key];
+    CGFloat out = [v isKindOfClass:[NSNumber class]] ? [v doubleValue] : def;
+    if (v) CFRelease((__bridge CFTypeRef)v);
+    return out;
 }
 static BOOL LVEnabled(void) {
-    id v = [[NSUserDefaults standardUserDefaults] objectForKey:@"LVDockEnabled"];
-    return v ? [v boolValue] : YES;
+    CFPreferencesAppSynchronize(LVDomain());
+    id v = (__bridge id)CFPreferencesCopyAppValue((__bridge CFStringRef)@"LVDockEnabled", LVDomain());
+    if (v == nil) v = [[NSUserDefaults standardUserDefaults] objectForKey:@"LVDockEnabled"];
+    BOOL out = v ? [v boolValue] : YES;   // 默认开
+    if (v) CFRelease((__bridge CFTypeRef)v);
+    return out;
 }
 
 static CGFloat LVDockHeight(void)  { return 64; }
@@ -343,13 +354,61 @@ static CGRect lv_popupDockFrame_hook(UITabBarController *vc, SEL _cmd)
 // ============================================================================
 #pragma mark - 安装
 // ============================================================================
+static NSArray<UITabBar *> *findAllTabBarsInView(UIView *root);
+static void LVReloadCB(CFNotificationCenterRef center __attribute__((unused)),
+                       void *observer __attribute__((unused)),
+                       CFStringRef name __attribute__((unused)),
+                       const void *object __attribute__((unused)),
+                       CFDictionaryRef userInfo __attribute__((unused)))
+{
+    // 设置变更：刷新偏好 + 触发所有 tabBar 重新打扮/还原
+    dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL on = LVEnabled();
+        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+            if (scene.activationState != UISceneActivationStateForegroundActive) continue;
+            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
+                for (UITabBar *tb in findAllTabBarsInView(w)) {
+                    if (!on) {
+                        tb.tag = 0;   // 摘标记，下次布局按关闭状态处理
+                        LVLog(@"reload -> disabled");
+                    } else {
+                        LVLog(@"reload -> enabled");
+                    }
+                }
+            }
+        }
+    });
+}
+
+static NSArray<UITabBar *> *findAllTabBarsInView(UIView *root)
+{
+    NSMutableArray<UITabBar *> *out = [NSMutableArray array];
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count) {
+        UIView *v = stack.firstObject;
+        [stack removeObjectAtIndex:0];
+        if ([v isKindOfClass:[UITabBar class]]) [out addObject:(UITabBar *)v];
+        for (UIView *s in v.subviews) [stack addObject:s];
+    }
+    return out;
+}
+
 __attribute__((constructor))
 static void LVInstall(void)
 {
     @autoreleasepool {
         NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
-        if (![bid.lowercaseString containsString:@"sileo"]) return;   // 只在 Sileo
+        NSString *exe = [[NSProcessInfo processInfo] processName] ?: @"";
+        // 双保险：bundle id 或可执行名任一含 sileo（大小写不敏感）
+        if (![bid.lowercaseString containsString:@"sileo"] &&
+            ![exe.lowercaseString containsString:@"sileo"]) return;   // 只在 Sileo
         if (!LVEnabled()) { LVLog(@"disabled, skip %@", bid); return; }
+
+        // 监听设置变更（切换开关后立即生效，不用重开）
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
+                                        NULL, LVReloadCB,
+                                        (__bridge CFStringRef)@"com.ning.lvglass/reload",
+                                        NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
 
         Method m1 = class_getInstanceMethod([UITabBar class], @selector(layoutSubviews));
         Method m2 = class_getInstanceMethod([UITabBar class], @selector(setFrame:));

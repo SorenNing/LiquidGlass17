@@ -18,7 +18,6 @@ echo "== SDK: $SDK / 版本 $VER / $ARCH"
 clang -c -fobjc-arc -O2 -isysroot "$SDK" -target $TARGET \
       -Iclient -Wno-deprecated-declarations \
       -o "$OUT/LVGlassDock.o" client/LVDock.m
-
 clang -target $TARGET -isysroot "$SDK" -dynamiclib \
       -F"$SDK/System/Library/Frameworks" -L"$SDK/usr/lib" \
       -framework UIKit -framework Foundation -framework CoreGraphics -framework QuartzCore \
@@ -30,11 +29,13 @@ file "$OUT/LVGlassDock.dylib"
 
 # 打包
 STAGE="$OUT/stage"
-mkdir -p "$STAGE/DEBIAN" "$STAGE/var/jb/Library/MobileSubstrate/DynamicLibraries"
+mkdir -p "$STAGE/DEBIAN" "$STAGE/var/jb/Library/MobileSubstrate/DynamicLibraries" \
+         "$STAGE/var/jb/Library/PreferenceLoader/Preferences/lvglass"
 cp control "$STAGE/DEBIAN/control"
 printf '#!/bin/sh\nexit 0\n' > "$STAGE/DEBIAN/postinst"; chmod 755 "$STAGE/DEBIAN/postinst"
 cp "$OUT/LVGlassDock.dylib" client/LVGlassDock.plist \
    "$STAGE/var/jb/Library/MobileSubstrate/DynamicLibraries/"
+cp client/LVRoot.plist "$STAGE/var/jb/Library/PreferenceLoader/Preferences/lvglass/Root.plist"
 
 mkdir -p dist
 DEB="dist/com.ning.lvglass_${VER}_${ARCH}.deb"
