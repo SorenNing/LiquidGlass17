@@ -76,10 +76,11 @@ static BOOL LVEnabled(void) {
     return out;
 }
 
-static CGFloat LVDockHeight(void)  { return 64; }
-static CGFloat LVDockMargin(void)  { return 18; }
-static CGFloat LVDockBottom(void)  { return 34; }
-static CGFloat LVDockRadius(void)  { return 32; }
+// 几何参数（2026-11-04 按视频实测校准：条更扁、边距更小、更贴底）
+static CGFloat LVDockHeight(void)  { return 56; }
+static CGFloat LVDockMargin(void)  { return 9;  }
+static CGFloat LVDockBottom(void)  { return 21; }
+static CGFloat LVDockRadius(void)  { return 28; }
 
 // ============================================================================
 #pragma mark - 边缘造型位图（bgFragment highlight+darkRing 的离线版）
@@ -150,7 +151,7 @@ static UIImage *LVEdgeOverlay(CGSize size, CGFloat radius, CGFloat strength)
 - (instancetype)initWithFrame:(CGRect)frame {
     if ((self = [super initWithFrame:frame])) {
         self.userInteractionEnabled = NO;
-        self.layer.cornerRadius = 28;                      // 高 56 = 64 - 内缩4*2
+        self.layer.cornerRadius = 22;                      // 高 48 = 56 - 内缩4*2
         self.layer.cornerCurve  = kCACornerCurveContinuous;
         self.layer.borderWidth  = 1.0;
         self.layer.borderColor  = [UIColor colorWithWhite:1 alpha:0.55].CGColor;
@@ -173,6 +174,7 @@ static CGRect (*orig_popupDockFrame)(id, SEL);
 static CGRect lv_popupDockFrame_hook(UITabBarController *vc, SEL _cmd);
 static BOOL  lv_inSetFrame = NO;     // setFrame 重入保护
 static BOOL  lv_dressPending = NO;
+static void  lv_trySwizzlePopupFrame(void);
 
 void LVDressUpTabBar(UITabBar *tb);
 void lv_updateOverlay(UITabBar *tb);
@@ -209,6 +211,7 @@ static void lv_tabBarSetFrame_hook(UITabBar *tb, SEL _cmd, CGRect frame)
 static void lv_tabBarLayout_hook(UITabBar *tb, SEL _cmd)
 {
     orig_tabBarLayout(tb, _cmd);
+    lv_trySwizzlePopupFrame();   // 类就绪后第一时间挂弹窗钩子
     if (tb.tag != LV_DONE_TAG) {
         if (!lv_dressPending) {
             lv_dressPending = YES;
@@ -326,18 +329,24 @@ void lv_updatePill(UITabBar *tb)
 // ============================================================================
 #pragma mark - Sileo 弹窗对齐
 // defaultFrameForBottomDockingView 的 Swift 类运行时名是 mangled 的
+// 注意：constructor 阶段 Swift 类还没注册（日志证实 not found），
+// 所以改成「懒挂」：第一次 layout 时类已存在，在那时再 swizzle。
 // ============================================================================
-static void lv_swizzleSileoPopupFrame(void)
+static BOOL lv_popupHooked = NO;
+
+static void lv_trySwizzlePopupFrame(void)
 {
+    if (lv_popupHooked) return;
     Class cls = NSClassFromString(@"_TtC5Sileo15TabBarController")
              ?: NSClassFromString(@"TabBarController");
-    if (!cls) { LVLog(@"TabBarController class not found (popup bar may misalign)"); return; }
+    if (!cls) return;   // 还没注册，下次再试
     SEL sel = @selector(defaultFrameForBottomDockingView);
     Method m = class_getInstanceMethod(cls, sel);
-    if (!m) { LVLog(@"defaultFrameForBottomDockingView not found on %@", cls); return; }
+    if (!m) { lv_popupHooked = YES; LVLog(@"defaultFrame getter not found on %@ (no popup hook)", cls); return; }
 
     orig_popupDockFrame = (CGRect(*)(id,SEL))method_getImplementation(m);
     method_setImplementation(m, (IMP)lv_popupDockFrame_hook);
+    lv_popupHooked = YES;
     LVLog(@"popup frame hook on %@", cls);
 }
 
@@ -354,43 +363,17 @@ static CGRect lv_popupDockFrame_hook(UITabBarController *vc, SEL _cmd)
 // ============================================================================
 #pragma mark - 安装
 // ============================================================================
-static NSArray<UITabBar *> *findAllTabBarsInView(UIView *root);
 static void LVReloadCB(CFNotificationCenterRef center __attribute__((unused)),
                        void *observer __attribute__((unused)),
                        CFStringRef name __attribute__((unused)),
                        const void *object __attribute__((unused)),
                        CFDictionaryRef userInfo __attribute__((unused)))
 {
-    // 设置变更：刷新偏好 + 触发所有 tabBar 重新打扮/还原
+    // 设置变更：只刷新偏好缓存。不做任何视图操作（防崩），
+    // 下一次 tabBar layout 自然按新值渲染。
     dispatch_async(dispatch_get_main_queue(), ^{
-        BOOL on = LVEnabled();
-        for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
-            if (scene.activationState != UISceneActivationStateForegroundActive) continue;
-            for (UIWindow *w in ((UIWindowScene *)scene).windows) {
-                for (UITabBar *tb in findAllTabBarsInView(w)) {
-                    if (!on) {
-                        tb.tag = 0;   // 摘标记，下次布局按关闭状态处理
-                        LVLog(@"reload -> disabled");
-                    } else {
-                        LVLog(@"reload -> enabled");
-                    }
-                }
-            }
-        }
+        LVLog(@"reload -> %@", LVEnabled() ? @"enabled" : @"disabled");
     });
-}
-
-static NSArray<UITabBar *> *findAllTabBarsInView(UIView *root)
-{
-    NSMutableArray<UITabBar *> *out = [NSMutableArray array];
-    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
-    while (stack.count) {
-        UIView *v = stack.firstObject;
-        [stack removeObjectAtIndex:0];
-        if ([v isKindOfClass:[UITabBar class]]) [out addObject:(UITabBar *)v];
-        for (UIView *s in v.subviews) [stack addObject:s];
-    }
-    return out;
 }
 
 __attribute__((constructor))
@@ -418,7 +401,6 @@ static void LVInstall(void)
         method_setImplementation(m1, (IMP)lv_tabBarLayout_hook);
         method_setImplementation(m2, (IMP)lv_tabBarSetFrame_hook);
 
-        lv_swizzleSileoPopupFrame();
-        LVLog(@"installed in %@ (v0.1.2)", bid);
+        LVLog(@"installed in %@ (v0.1.4)", bid);
     }
 }
