@@ -7,6 +7,14 @@
 		<key>Executables</key>
 		<array>
 			<string>Sileo</string>
+			<string>SileoStore</string>
+		</array>
+		<key>Bundles</key>
+		<array>
+			<string>com.amywhile.sileo</string>
+			<string>org.coolstar.SileoStore</string>
+			<string>org.coolstar.sileo</string>
+			<string>com.coolstar.sileo</string>
 		</array>
 	</dict>
 </dict>
