@@ -41,6 +41,13 @@ static void LVLog(NSString *fmt, ...)
         NSString *dir = @"/var/mobile/Library/Accessibility";
         mkdir(dir.fileSystemRepresentation, 0755);
         NSString *path = [dir stringByAppendingPathComponent:@"lvglass.log"];
+        FILE *probe = fopen(path.fileSystemRepresentation, "a");
+        if (!probe) {  // 主路径不可写 → 退到 Library 直下
+            dir = @"/var/mobile/Library";
+            path = [dir stringByAppendingPathComponent:@"lvglass.log"];
+            probe = fopen(path.fileSystemRepresentation, "a");
+        }
+        if (probe) fclose(probe);
         // 简单截断：超过 64KB 重来（不做真环形缓冲）
         struct stat st = {0};
         if (stat(path.fileSystemRepresentation, &st) == 0 && st.st_size > 64 * 1024)
@@ -380,11 +387,20 @@ __attribute__((constructor))
 static void LVInstall(void)
 {
     @autoreleasepool {
+        // 第一行日志放在一切判定之前：只要 dylib 被加载就必须出现。
+        // 没有这行 = dylib 根本没被 substrate 注入（filter 问题），不是代码问题。
+        NSString *bid0 = [[NSBundle mainBundle] bundleIdentifier] ?: @"(nil)";
+        NSString *exe0 = [[NSProcessInfo processInfo] processName] ?: @"(nil)";
+        LVLog(@"dylib loaded: bid=%@ exe=%@", bid0, exe0);
+
         NSString *bid = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
         NSString *exe = [[NSProcessInfo processInfo] processName] ?: @"";
         // 双保险：bundle id 或可执行名任一含 sileo（大小写不敏感）
         if (![bid.lowercaseString containsString:@"sileo"] &&
-            ![exe.lowercaseString containsString:@"sileo"]) return;   // 只在 Sileo
+            ![exe.lowercaseString containsString:@"sileo"]) {
+            LVLog(@"not sileo target, skip");
+            return;   // 只在 Sileo
+        }
         if (!LVEnabled()) { LVLog(@"disabled, skip %@", bid); return; }
 
         // 监听设置变更（切换开关后立即生效，不用重开）
