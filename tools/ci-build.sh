@@ -30,12 +30,14 @@ file "$OUT/LVGlassDock.dylib"
 # 打包
 STAGE="$OUT/stage"
 mkdir -p "$STAGE/DEBIAN" "$STAGE/var/jb/Library/MobileSubstrate/DynamicLibraries" \
-         "$STAGE/var/jb/Library/PreferenceLoader/Preferences/lvglass"
+         "$STAGE/var/jb/Library/PreferenceLoader/Preferences/lvglass" \
+         "$STAGE/var/jb/Library/PreferenceBundles"
 cp control "$STAGE/DEBIAN/control"
 printf '#!/bin/sh\nexit 0\n' > "$STAGE/DEBIAN/postinst"; chmod 755 "$STAGE/DEBIAN/postinst"
 cp "$OUT/LVGlassDock.dylib" client/LVGlassDock.plist \
    "$STAGE/var/jb/Library/MobileSubstrate/DynamicLibraries/"
 cp client/LVRoot.plist "$STAGE/var/jb/Library/PreferenceLoader/Preferences/lvglass/Root.plist"
+cp -R client/lvglass.bundle "$STAGE/var/jb/Library/PreferenceBundles/"
 
 mkdir -p dist
 DEB="dist/com.ning.lvglass_${VER}_${ARCH}.deb"
