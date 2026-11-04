@@ -6,7 +6,14 @@
 	<dict>
 		<key>Bundles</key>
 		<array>
-			<string>com.apple.UIKit</string>
+			<string>com.coolstar.sileo</string>
+			<string>org.coolstar.sileo</string>
+			<string>org.coolstar.sileo.nightly</string>
+			<string>com.coolstar.sileo.beta</string>
+			<string>org.coolstar.SileoStore</string>
+			<string>com.amywhile.sileo</string>
+			<string>Sileo</string>
+			<string>SileoStore</string>
 		</array>
 	</dict>
 </dict>
