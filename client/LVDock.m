@@ -59,6 +59,7 @@ static void LVLog(NSString *fmt, ...)
 #define LV_PREFS_DOMAIN @"com.ning.lvglass"
 static CFStringRef LVDomain(void) { return (__bridge CFStringRef)LV_PREFS_DOMAIN; }
 
+static CGFloat LVFloat(NSString *key, CGFloat def) __attribute__((unused));
 static CGFloat LVFloat(NSString *key, CGFloat def) {
     CFPreferencesAppSynchronize(LVDomain());
     id v = (__bridge id)CFPreferencesCopyAppValue((__bridge CFStringRef)key, LVDomain());
@@ -81,74 +82,6 @@ static CGFloat LVDockHeight(void)  { return 56; }
 static CGFloat LVDockMargin(void)  { return 9;  }
 static CGFloat LVDockBottom(void)  { return 21; }
 static CGFloat LVDockRadius(void)  { return 28; }
-
-// ============================================================================
-#pragma mark - 玻璃面板位图（纯自绘：不依赖任何系统模糊，立刻显示、永不消失）
-// ============================================================================
-static UIImage *LVGlassPanel(CGSize size, BOOL dark, CGFloat radius, CGFloat strength)
-{
-    if (size.width < 4 || size.height < 4) return nil;
-    UIGraphicsImageRendererFormat *f = [UIGraphicsImageRendererFormat defaultFormat];
-    f.opaque = NO;
-    f.scale  = [UIScreen mainScreen].scale;
-    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:size format:f];
-    return [r imageWithActions:^(UIGraphicsImageRendererContext *rc) {
-        CGContextRef c = rc.CGContext;
-        CGRect rect = CGRectMake(0, 0, size.width, size.height);
-        CGFloat k = radius;
-
-        // 基底：浅色乳白玻璃 / 深色烟灰玻璃
-        CGFloat baseA = dark ? 0.46 : 0.74;
-        UIColor *base = dark ? [UIColor colorWithWhite:0.16 alpha:baseA]
-                             : [UIColor colorWithWhite:1.00 alpha:baseA];
-        UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:k];
-        [base setFill];
-        [shape fill];
-
-        CGContextSaveGState(c);
-        [shape addClip];
-
-        // 顶部高光（越靠上越亮）
-        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        CGFloat comps[] = {1,1,1, (dark ? 0.26 : 0.30) * strength,  1,1,1, 0.0};
-        CGFloat locs[]  = {0, 1};
-        CGGradientRef grad = CGGradientCreateWithColorComponents(cs, comps, locs, 2);
-        CGContextDrawLinearGradient(c, grad,
-            CGPointMake(CGRectGetMidX(rect), CGRectGetMinY(rect)),
-            CGPointMake(CGRectGetMidX(rect), CGRectGetMinY(rect) + size.height * 0.55), 0);
-        CGGradientRelease(grad);
-        CGColorSpaceRelease(cs);
-
-        // 底部轻微压暗（体积感）
-        CGFloat comps2[] = {0,0,0, 0.0,  0,0,0, (dark ? 0.16 : 0.10)};
-        CGGradientRef grad2 = CGGradientCreateWithColorComponents(cs, comps2, locs, 2);
-        CGColorSpaceRef cs2 = CGColorSpaceCreateDeviceRGB();
-        grad2 = CGGradientCreateWithColorComponents(cs2, comps2, locs, 2);
-        CGContextDrawLinearGradient(c, grad2,
-            CGPointMake(CGRectGetMidX(rect), CGRectGetMaxY(rect) - size.height * 0.45),
-            CGPointMake(CGRectGetMidX(rect), CGRectGetMaxY(rect)), 0);
-        CGGradientRelease(grad2);
-        CGColorSpaceRelease(cs2);
-
-        // 1px 亮边（玻璃亮边）
-        UIBezierPath *edge = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(rect, 0.5, 0.5)
-                                                        cornerRadius:k - 0.5];
-        edge.lineWidth = 1.0;
-        CGContextSetStrokeColorWithColor(c, [UIColor colorWithWhite:1 alpha:(dark ? 0.30 : 0.92)].CGColor);
-        CGContextAddPath(c, edge.CGPath);
-        CGContextStrokePath(c);
-
-        // 内暗环（靠内一圈轻微压暗，做出厚度）
-        UIBezierPath *ring = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(rect, 2.5, 2.5)
-                                                        cornerRadius:k - 2.5];
-        ring.lineWidth = 3.0;
-        CGContextSetStrokeColorWithColor(c, [UIColor colorWithWhite:0 alpha:(dark ? 0.14 : 0.06)].CGColor);
-        CGContextAddPath(c, ring.CGPath);
-        CGContextStrokePath(c);
-
-        CGContextRestoreGState(c);
-    }];
-}
 
 #pragma mark - 胶囊
 @interface LVPillView : UIView
@@ -232,7 +165,7 @@ static void LVDressUpTabBar(UITabBar *tb)
     // --- tabBar 本体完全透明：玻璃由容器里的 CABackdropLayer 自绘
     UITabBarAppearance *ap = [[UITabBarAppearance alloc] init];
     [ap configureWithTransparentBackground];
-    ap.backgroundEffect = nil;
+    ap.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
     ap.backgroundColor  = UIColor.clearColor;
         ap.shadowColor      = UIColor.clearColor;
         ap.shadowImage      = [[UIImage alloc] init];
@@ -267,18 +200,8 @@ static void LVDressUpTabBar(UITabBar *tb)
                                            UIViewAutoresizingFlexibleTopMargin;
             objc_setAssociatedObject(tbc, ck, container, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
-        // —— 自绘玻璃面板（CPU 位图，立刻显示、永不消失）
-        UIImageView *panel = (UIImageView *)[container viewWithTag:LV_GLASS_TAG];
-        if (!panel) {
-            panel = [[UIImageView alloc] initWithFrame:container.bounds];
-            panel.tag = LV_GLASS_TAG;
-            panel.userInteractionEnabled = NO;
-            panel.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [container insertSubview:panel atIndex:0];
-        }
-        BOOL dark = (tb.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
-        panel.image = LVGlassPanel(container.bounds.size, dark,
-                                   LVDockRadius(), LVFloat(@"LVDockHighlight", 0.9));
+        // —— 材质交回系统（LiquidGlass27 会在渲染层接管成真玻璃）
+        //    自己画永远是色块，出不来真模糊，这里不再自绘。
 
         // —— tabBar 本体：完全透明（不要系统材质，避免一切外部干扰）
         [tb removeFromSuperview];
@@ -321,23 +244,8 @@ static void LVDressUpTabBar(UITabBar *tb)
     }
 }
 
-// --- 玻璃面板：尺寸/深浅色变化时重建位图 -----------------------------------
-void lv_updateOverlay(UITabBar *tb)
-{
-    @try {
-        UIView *container = tb.superview;
-        UIImageView *panel = (UIImageView *)[container viewWithTag:LV_GLASS_TAG];
-        if (!panel) return;
-        static char kSizeKey;   // per-container 缓存
-        NSValue *cached = objc_getAssociatedObject(container, &kSizeKey);
-        CGSize now = container.bounds.size;
-        BOOL dark = (tb.traitCollection.userInterfaceStyle == UIUserInterfaceStyleDark);
-        if (cached && CGSizeEqualToSize([cached CGSizeValue], now) && panel.image) return;
-        objc_setAssociatedObject(container, &kSizeKey, [NSValue valueWithCGSize:now],
-                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-        panel.image = LVGlassPanel(now, dark, LVDockRadius(), LVFloat(@"LVDockHighlight", 0.9));
-    } @catch (NSException *e) {}
-}
+// --- 面板更新（现在由系统材质渲染，这里只保留空实现） --------------------
+void lv_updateOverlay(UITabBar *tb __attribute__((unused))) { }
 
 // --- 胶囊排位 + 水滴滑移（纯算术） -------------------------------------------
 void lv_updatePill(UITabBar *tb)
@@ -501,6 +409,6 @@ static void LVInstall(void)
                                         NULL, LVReloadCB,
                                         (__bridge CFStringRef)@"com.ning.lvglass/reload",
                                         NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        LVLog(@"installed in %@ (v0.3.4)", bid);
+        LVLog(@"installed in %@ (v0.4.0)", bid);
     }
 }
