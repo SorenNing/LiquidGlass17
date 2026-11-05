@@ -227,19 +227,29 @@ static void LVDressUpTabBar(UITabBar *tb)
             objc_setAssociatedObject(tb, LV_PILL_KEY, pill, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
 
-        // —— 摘出重挂：脱离 UITabBarController 的布局管理（0.1.2 骨架）
-        CGRect container = tbc.view.bounds;
-        CGFloat w = container.size.width - LVDockMargin() * 2;
-        CGRect f = CGRectMake(LVDockMargin(),
-                              container.size.height - LVDockBottom() - LVDockHeight(),
-                              w, LVDockHeight());
+        // —— 摘出重挂：UIKit 禁止对 controller 管理的 tabBar 直接设 frame
+        //   （"Cannot choose layout method for UITabBar managed by a controller"）。
+        //   解法：包一层自定义容器 lv_container——controller 管不到容器，
+        //   tabBar 在容器里 translates=NO 填满，浮动态全在容器 frame 上改。
+        CGRect vcBounds = tbc.view.bounds;
+        void *ck = (void *)"lv_dock_container";
+        UIView *container = objc_getAssociatedObject(tbc, ck);
+        if (!container) {
+            container = [[UIView alloc] initWithFrame:CGRectMake(LVDockMargin(),
+                vcBounds.size.height - LVDockBottom() - LVDockHeight(),
+                vcBounds.size.width - LVDockMargin() * 2, LVDockHeight())];
+            container.layer.cornerRadius = LVDockRadius();
+            container.layer.cornerCurve  = kCACornerCurveContinuous;
+            container.clipsToBounds      = YES;
+            container.autoresizingMask   = UIViewAutoresizingFlexibleWidth |
+                                           UIViewAutoresizingFlexibleTopMargin;
+            objc_setAssociatedObject(tbc, ck, container, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        }
         [tb removeFromSuperview];
-        tb.frame = f;
-        tb.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin |
-                              UIViewAutoresizingFlexibleRightMargin |
-                              UIViewAutoresizingFlexibleTopMargin;
-        tb.translatesAutoresizingMaskIntoConstraints = YES;   // 用 frame，不用约束
-        [tbc.view addSubview:tb];
+        tb.frame = container.bounds;
+        tb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [container addSubview:tb];
+        if (!container.superview) [tbc.view addSubview:container];
 
         // —— 胶囊 & 造型层加回 tabBar
         if (!pill.superview) [tb addSubview:pill];
