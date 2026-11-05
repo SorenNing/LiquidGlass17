@@ -192,6 +192,10 @@ static void lv_cleanSileoOverlay(UITabBar *tb)
                     continue;
                 }
                 if (bgCls && [v isKindOfClass:bgCls]) {
+                    // _UIBarBackground 自己也带白/灰底（Sileo 上色），一并清掉
+                    v.backgroundColor = UIColor.clearColor;
+                    v.layer.cornerRadius = LVDockRadius();
+                    v.clipsToBounds = YES;
                     for (UIView *sv in [v.subviews copy]) {
                         @try {
                             if (subCls && [sv isKindOfClass:subCls])
@@ -497,6 +501,6 @@ static void LVInstall(void)
                                         NULL, LVReloadCB,
                                         (__bridge CFStringRef)@"com.ning.lvglass/reload",
                                         NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        LVLog(@"installed in %@ (v0.3.3)", bid);
+        LVLog(@"installed in %@ (v0.3.4)", bid);
     }
 }
