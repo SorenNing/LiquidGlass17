@@ -282,9 +282,20 @@ static void LVDressUpTabBar(UITabBar *tb)
         tb.frame = container.bounds;
         tb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [container addSubview:tb];
-        if (!container.superview) [tbc.view addSubview:container];
+        [container bringSubviewToFront:tb];
+        if (!container.superview) {
+            [tbc.view addSubview:container];
+            [tbc.view bringSubviewToFront:container];
+        }
+        // 诊断：列出 tabBar 子视图（找"盖住图标"的层）
+        NSMutableString *diag = [NSMutableString string];
+        for (UIView *v in tb.subviews)
+            [diag appendFormat:@"%@(%.0fx%.0f h=%.1f) ", NSStringFromClass(v.class),
+                v.bounds.size.width, v.bounds.size.height, v.alpha];
+        LVLog(@"tb subs: %@", diag);
 
         // —— 胶囊加回 tabBar（图标下面）
+        if (pill.superview == tb) [tb bringSubviewToFront:pill];
         if (!pill.superview) {
             Class bgCls2 = NSClassFromString(@"_UIBarBackground");
             BOOL placed2 = NO;
@@ -363,13 +374,13 @@ void lv_setSelectedItem_hook(id self, SEL _cmd, UITabBarItem *item)
 {
     orig_setSelectedItem(self, _cmd, item);
     UITabBar *tb = (UITabBar *)self;
-    dispatch_async(dispatch_get_main_queue(), ^{ lv_updatePill(tb); });
+    lv_updatePill(tb);
 }
 void lv_setSelectedItemAnimated_hook(id self, SEL _cmd, UITabBarItem *item, BOOL animated)
 {
     orig_setSelectedItemAnimated(self, _cmd, item, animated);
     UITabBar *tb = (UITabBar *)self;
-    dispatch_async(dispatch_get_main_queue(), ^{ lv_updatePill(tb); });
+    lv_updatePill(tb);
 }
 
 // --- 布局钩子：只排胶囊；首次延迟打扮；不动 frame、不抛异常 ------------------
@@ -486,6 +497,6 @@ static void LVInstall(void)
                                         NULL, LVReloadCB,
                                         (__bridge CFStringRef)@"com.ning.lvglass/reload",
                                         NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        LVLog(@"installed in %@ (v0.3.2)", bid);
+        LVLog(@"installed in %@ (v0.3.3)", bid);
     }
 }
