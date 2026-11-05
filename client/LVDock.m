@@ -21,6 +21,7 @@
 
 #define LV_DONE_TAG ((long)0x4C564431)   // 'LVD1'
 #define LV_OV_TAG   ((long)0x6F76)       // 'ov'
+#define LV_GLASS_TAG ((long)0x6C7667)    // 'lvg'
 #define LV_PILL_KEY  "lv_pill"
 #define LV_OVSIZE_KEY "lv_ovsize"
 
@@ -193,25 +194,6 @@ static void lv_cleanSileoOverlay(UITabBar *tb)
     }
 }
 
-// hook _UIVisualEffectSubview setBackgroundColor: 持续压制 Sileo WhiteBlur
-// （它在每次 setFilters: 后都会重设 0.85 白/黑底，一次性清理会被覆盖）
-static void (*orig_subviewSetBG)(id, SEL, UIColor *);
-static void lv_subviewSetBG_hook(id self, SEL _cmd, UIColor *c)
-{
-    @try {
-        // 在 UITabBar 树里的一律不给设底色（Sileo WhiteBlur 的灰板/白板来源）
-        UIResponder *r = [(UIView *)self nextResponder];
-        while (r) {
-            if ([r isKindOfClass:[UITabBar class]]) {
-                orig_subviewSetBG(self, _cmd, UIColor.clearColor);
-                return;
-            }
-            r = [r nextResponder];
-        }
-    } @catch (NSException *e) {}
-    orig_subviewSetBG(self, _cmd, c);
-}
-
 // --- 打扮：摘出重挂（0.1.2 验证过的骨架）+ 玻璃外观 + 胶囊 + 造型层 ----------
 static void LVDressUpTabBar(UITabBar *tb)
 {
@@ -228,10 +210,10 @@ static void LVDressUpTabBar(UITabBar *tb)
         }
         if (!tbc.view) return;
 
-    // --- 玻璃外观（UltraThin 浅色下更透，接近视频版的清透感）
+    // --- tabBar 本体完全透明：玻璃由容器里的 CABackdropLayer 自绘
     UITabBarAppearance *ap = [[UITabBarAppearance alloc] init];
     [ap configureWithTransparentBackground];
-    ap.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial];
+    ap.backgroundEffect = nil;
     ap.backgroundColor  = UIColor.clearColor;
         ap.shadowColor      = UIColor.clearColor;
         ap.shadowImage      = [[UIImage alloc] init];
@@ -266,21 +248,62 @@ static void LVDressUpTabBar(UITabBar *tb)
                                            UIViewAutoresizingFlexibleTopMargin;
             objc_setAssociatedObject(tbc, ck, container, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
         }
+        // —— 自绘玻璃层（CABackdropLayer）：真背景模糊，绕开 UIVisualEffectView，
+        //   所以 Sileo 的 WhiteBlur hook（针对 _UIVisualEffectSubview）完全碰不到
+        UIImageView *glass = (UIImageView *)[container viewWithTag:LV_GLASS_TAG];
+        if (!glass) {
+            Class backdropCls = NSClassFromString(@"CABackdropLayer");
+            UIView *gv;
+            if (backdropCls) {
+                gv = [[UIView alloc] initWithFrame:container.bounds];
+                // 换掉 layerClass 需要用子类；这里动态建一个
+                NSString *subName = @"LVDockBackdropView";
+                Class sub = NSClassFromString(subName);
+                if (!sub) {
+                    sub = objc_allocateClassPair([UIView class], subName.UTF8String, 0);
+                    if (sub) {
+                        IMP imp = imp_implementationWithBlock(^Class(id self_) { (void)self_; return backdropCls; });
+                        class_addMethod(object_getClass(sub), @selector(layerClass), imp, "@@:");
+                        objc_registerClassPair(sub);
+                    }
+                }
+                if (sub) gv = [[sub alloc] initWithFrame:container.bounds];
+            } else {
+                gv = [[UIVisualEffectView alloc] initWithEffect:
+                      [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial]];
+                gv.frame = container.bounds;
+            }
+            gv.tag = LV_GLASS_TAG;
+            gv.userInteractionEnabled = NO;
+            gv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [container insertSubview:gv atIndex:0];
+
+            // 玻璃上的高光/暗环（自绘位图，不依赖任何系统材质）
+            UIImageView *ov = [[UIImageView alloc] initWithFrame:container.bounds];
+            ov.tag = LV_OV_TAG;
+            ov.userInteractionEnabled = NO;
+            ov.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [container insertSubview:ov aboveSubview:gv];
+        }
+
+        // —— tabBar 本体：完全透明（不要系统材质，避免一切外部干扰）
         [tb removeFromSuperview];
+        tb.backgroundColor = UIColor.clearColor;
         tb.frame = container.bounds;
         tb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
         [container addSubview:tb];
         if (!container.superview) [tbc.view addSubview:container];
 
-        // —— 胶囊 & 造型层加回 tabBar
-        if (!pill.superview) [tb addSubview:pill];
-        UIImageView *ov = (UIImageView *)[tb viewWithTag:LV_OV_TAG];
-        if (!ov) {
-            ov = [[UIImageView alloc] initWithFrame:tb.bounds];
-            ov.tag = LV_OV_TAG;
-            ov.userInteractionEnabled = NO;
-            ov.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-            [tb addSubview:ov];
+        // —— 胶囊加回 tabBar（图标下面）
+        if (!pill.superview) {
+            Class bgCls2 = NSClassFromString(@"_UIBarBackground");
+            BOOL placed2 = NO;
+            if (bgCls2) {
+                for (UIView *v in [tb.subviews copy]) {
+                    if ([v isKindOfClass:bgCls2]) { [tb insertSubview:pill aboveSubview:v]; placed2 = YES; break; }
+                }
+            }
+            if (!placed2) [tb insertSubview:pill atIndex:0];
         }
 
         lv_cleanSileoOverlay(tb);
@@ -441,20 +464,10 @@ static void LVInstall(void)
         orig_tabBarLayout = (void(*)(id,SEL))method_getImplementation(m);
         method_setImplementation(m, (IMP)lv_tabBarLayout_hook);
 
-        // 持续压制 Sileo WhiteBlur 的灰/白底
-        Class subCls = NSClassFromString(@"_UIVisualEffectSubview");
-        if (subCls) {
-            Method mbg = class_getInstanceMethod(subCls, @selector(setBackgroundColor:));
-            if (mbg) {
-                orig_subviewSetBG = (void(*)(id,SEL,UIColor *))method_getImplementation(mbg);
-                method_setImplementation(mbg, (IMP)lv_subviewSetBG_hook);
-            }
-        }
-
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL, LVReloadCB,
                                         (__bridge CFStringRef)@"com.ning.lvglass/reload",
                                         NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        LVLog(@"installed in %@ (v0.2.3)", bid);
+        LVLog(@"installed in %@ (v0.3.0)", bid);
     }
 }
