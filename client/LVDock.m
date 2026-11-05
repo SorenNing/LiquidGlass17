@@ -97,9 +97,9 @@ static UIImage *LVGlassPanel(CGSize size, BOOL dark, CGFloat radius, CGFloat str
         CGRect rect = CGRectMake(0, 0, size.width, size.height);
         CGFloat k = radius;
 
-        // 基底：浅色半透明白 / 深色半透明黑
-        CGFloat baseA = dark ? 0.42 : 0.55;
-        UIColor *base = dark ? [UIColor colorWithWhite:0.10 alpha:baseA]
+        // 基底：浅色乳白玻璃 / 深色烟灰玻璃
+        CGFloat baseA = dark ? 0.46 : 0.74;
+        UIColor *base = dark ? [UIColor colorWithWhite:0.16 alpha:baseA]
                              : [UIColor colorWithWhite:1.00 alpha:baseA];
         UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:k];
         [base setFill];
@@ -110,7 +110,7 @@ static UIImage *LVGlassPanel(CGSize size, BOOL dark, CGFloat radius, CGFloat str
 
         // 顶部高光（越靠上越亮）
         CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-        CGFloat comps[] = {1,1,1, (dark ? 0.30 : 0.62) * strength,  1,1,1, 0.0};
+        CGFloat comps[] = {1,1,1, (dark ? 0.26 : 0.30) * strength,  1,1,1, 0.0};
         CGFloat locs[]  = {0, 1};
         CGGradientRef grad = CGGradientCreateWithColorComponents(cs, comps, locs, 2);
         CGContextDrawLinearGradient(c, grad,
@@ -134,7 +134,7 @@ static UIImage *LVGlassPanel(CGSize size, BOOL dark, CGFloat radius, CGFloat str
         UIBezierPath *edge = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(rect, 0.5, 0.5)
                                                         cornerRadius:k - 0.5];
         edge.lineWidth = 1.0;
-        CGContextSetStrokeColorWithColor(c, [UIColor colorWithWhite:1 alpha:(dark ? 0.35 : 0.65)].CGColor);
+        CGContextSetStrokeColorWithColor(c, [UIColor colorWithWhite:1 alpha:(dark ? 0.30 : 0.92)].CGColor);
         CGContextAddPath(c, edge.CGPath);
         CGContextStrokePath(c);
 
@@ -356,6 +356,22 @@ void lv_updatePill(UITabBar *tb)
     } @catch (NSException *e) {}
 }
 
+// --- 选中项变化时更新胶囊（tabBar 被摘出后 layout 不一定会重跑） -------------
+static void (*orig_setSelectedItem)(id, SEL, UITabBarItem *);
+static void (*orig_setSelectedItemAnimated)(id, SEL, UITabBarItem *, BOOL);
+void lv_setSelectedItem_hook(id self, SEL _cmd, UITabBarItem *item)
+{
+    orig_setSelectedItem(self, _cmd, item);
+    UITabBar *tb = (UITabBar *)self;
+    dispatch_async(dispatch_get_main_queue(), ^{ lv_updatePill(tb); });
+}
+void lv_setSelectedItemAnimated_hook(id self, SEL _cmd, UITabBarItem *item, BOOL animated)
+{
+    orig_setSelectedItemAnimated(self, _cmd, item, animated);
+    UITabBar *tb = (UITabBar *)self;
+    dispatch_async(dispatch_get_main_queue(), ^{ lv_updatePill(tb); });
+}
+
 // --- 布局钩子：只排胶囊；首次延迟打扮；不动 frame、不抛异常 ------------------
 static void lv_tabBarLayout_hook(UITabBar *tb, SEL _cmd)
 {
@@ -450,6 +466,17 @@ static void LVInstall(void)
         }
         if (!LVEnabled()) { LVLog(@"disabled"); return; }
 
+        Method ms = class_getInstanceMethod([UITabBar class], @selector(setSelectedItem:));
+        if (ms) {
+            orig_setSelectedItem = (void(*)(id,SEL,UITabBarItem *))method_getImplementation(ms);
+            method_setImplementation(ms, (IMP)lv_setSelectedItem_hook);
+        }
+        Method msa = class_getInstanceMethod([UITabBar class], @selector(setSelectedItem:animated:));
+        if (msa) {
+            orig_setSelectedItemAnimated = (void(*)(id,SEL,UITabBarItem *,BOOL))method_getImplementation(msa);
+            method_setImplementation(msa, (IMP)lv_setSelectedItemAnimated_hook);
+        }
+
         Method m = class_getInstanceMethod([UITabBar class], @selector(layoutSubviews));
         if (!m) return;
         orig_tabBarLayout = (void(*)(id,SEL))method_getImplementation(m);
@@ -459,6 +486,6 @@ static void LVInstall(void)
                                         NULL, LVReloadCB,
                                         (__bridge CFStringRef)@"com.ning.lvglass/reload",
                                         NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        LVLog(@"installed in %@ (v0.3.1)", bid);
+        LVLog(@"installed in %@ (v0.3.2)", bid);
     }
 }
