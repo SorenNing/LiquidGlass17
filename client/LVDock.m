@@ -240,6 +240,32 @@ void LVDressUpTabBar(UITabBar *tb)
     if (!tb || tb.superview == nil || tb.tag == LV_DONE_TAG) return;
     if (!LVEnabled()) return;
 
+    // --- 0. 干掉 Sileo WhiteBlur 灰底：_UIVisualEffectSubview 的 0.85 白/黑
+    //        （Sileo 自己的 hook 会设置背景色，这里把它的 view 直接隐藏/透明）
+    Class subCls = NSClassFromString(@"_UIVisualEffectSubview");
+    if (subCls) {
+        for (UIView *v in tb.subviews) {
+            if ([v isKindOfClass:subCls]) {
+                v.backgroundColor = UIColor.clearColor;   // 去灰板
+                v.hidden = NO;                            // 保留模糊，只去底色
+            }
+        }
+    }
+    // _UIBarBackground 里 Sileo 塞的自绘层同样清理
+    Class bgCls = NSClassFromString(@"_UIBarBackground");
+    if (bgCls) {
+        for (UIView *v in tb.subviews) {
+            if (![v isKindOfClass:bgCls]) continue;
+            for (UIView *sv in v.subviews) {
+                if ([sv isKindOfClass:subCls]) sv.backgroundColor = UIColor.clearColor;
+                // hairline（分隔线）也是它画的
+                if (sv.bounds.size.height <= 2.0 && sv.backgroundColor != nil &&
+                    [NSStringFromClass(sv.class) containsString:@"Hairline"])
+                    sv.hidden = YES;
+            }
+        }
+    }
+
     // --- 玻璃材质（系统渲染，勿自己再叠 blur）
     UITabBarAppearance *ap = [[UITabBarAppearance alloc] init];
     [ap configureWithTransparentBackground];
@@ -254,11 +280,10 @@ void LVDressUpTabBar(UITabBar *tb)
     tb.layer.cornerCurve    = kCACornerCurveContinuous;
     tb.clipsToBounds        = YES;
 
-    // --- 胶囊（图标下面：_UIBarBackground 之上）
+    // --- 胶囊（图标下面：_UIBarBackground 之上；初始位置放首格，避免闪现到角落）
     LVPillView *pill = objc_getAssociatedObject(tb, LV_PILL_KEY);
     if (!pill) {
-        pill = [[LVPillView alloc] initWithFrame:CGRectZero];
-        Class bgCls = NSClassFromString(@"_UIBarBackground");
+        pill = [[LVPillView alloc] initWithFrame:CGRectMake(4, 4, 60, tb.bounds.size.height - 8)];
         BOOL placed = NO;
         if (bgCls) {
             for (UIView *v in tb.subviews) {
