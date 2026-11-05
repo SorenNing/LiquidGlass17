@@ -1,6 +1,6 @@
 Package: com.ning.lvglass
 Name: LVGlass 玻璃底栏
-Version: 0.2.2
+Version: 0.2.3
 Architecture: iphoneos-arm64e
 Description: Sileo 悬浮玻璃底栏（LiquidGlass17 客户端配方）。Sileo 底部Tab右侧「软件包」详情页有开关。
 Maintainer: Ning

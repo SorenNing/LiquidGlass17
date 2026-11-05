@@ -24,6 +24,8 @@
 #define LV_PILL_KEY  "lv_pill"
 #define LV_OVSIZE_KEY "lv_ovsize"
 
+@class _UIVisualEffectSubview;   // 私有类，运行时取
+
 // ---- 日志 ------------------------------------------------------------------
 static FILE *lv_log_file = nil;
 static void LVLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1,2);
@@ -191,6 +193,25 @@ static void lv_cleanSileoOverlay(UITabBar *tb)
     }
 }
 
+// hook _UIVisualEffectSubview setBackgroundColor: 持续压制 Sileo WhiteBlur
+// （它在每次 setFilters: 后都会重设 0.85 白/黑底，一次性清理会被覆盖）
+static void (*orig_subviewSetBG)(id, SEL, UIColor *);
+static void lv_subviewSetBG_hook(id self, SEL _cmd, UIColor *c)
+{
+    @try {
+        // 在 UITabBar 树里的一律不给设底色（Sileo WhiteBlur 的灰板/白板来源）
+        UIResponder *r = [(UIView *)self nextResponder];
+        while (r) {
+            if ([r isKindOfClass:[UITabBar class]]) {
+                orig_subviewSetBG(self, _cmd, UIColor.clearColor);
+                return;
+            }
+            r = [r nextResponder];
+        }
+    } @catch (NSException *e) {}
+    orig_subviewSetBG(self, _cmd, c);
+}
+
 // --- 打扮：摘出重挂（0.1.2 验证过的骨架）+ 玻璃外观 + 胶囊 + 造型层 ----------
 static void LVDressUpTabBar(UITabBar *tb)
 {
@@ -207,11 +228,11 @@ static void LVDressUpTabBar(UITabBar *tb)
         }
         if (!tbc.view) return;
 
-        // —— 玻璃外观
-        UITabBarAppearance *ap = [[UITabBarAppearance alloc] init];
-        [ap configureWithTransparentBackground];
-        ap.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemThinMaterial];
-        ap.backgroundColor  = UIColor.clearColor;
+    // --- 玻璃外观（UltraThin 浅色下更透，接近视频版的清透感）
+    UITabBarAppearance *ap = [[UITabBarAppearance alloc] init];
+    [ap configureWithTransparentBackground];
+    ap.backgroundEffect = [UIBlurEffect effectWithStyle:UIBlurEffectStyleSystemUltraThinMaterial];
+    ap.backgroundColor  = UIColor.clearColor;
         ap.shadowColor      = UIColor.clearColor;
         ap.shadowImage      = [[UIImage alloc] init];
         tb.standardAppearance   = ap;
@@ -420,10 +441,20 @@ static void LVInstall(void)
         orig_tabBarLayout = (void(*)(id,SEL))method_getImplementation(m);
         method_setImplementation(m, (IMP)lv_tabBarLayout_hook);
 
+        // 持续压制 Sileo WhiteBlur 的灰/白底
+        Class subCls = NSClassFromString(@"_UIVisualEffectSubview");
+        if (subCls) {
+            Method mbg = class_getInstanceMethod(subCls, @selector(setBackgroundColor:));
+            if (mbg) {
+                orig_subviewSetBG = (void(*)(id,SEL,UIColor *))method_getImplementation(mbg);
+                method_setImplementation(mbg, (IMP)lv_subviewSetBG_hook);
+            }
+        }
+
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(),
                                         NULL, LVReloadCB,
                                         (__bridge CFStringRef)@"com.ning.lvglass/reload",
                                         NULL, CFNotificationSuspensionBehaviorDeliverImmediately);
-        LVLog(@"installed in %@ (v0.2.1)", bid);
+        LVLog(@"installed in %@ (v0.2.3)", bid);
     }
 }
